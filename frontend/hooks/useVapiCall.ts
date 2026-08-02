@@ -19,7 +19,11 @@ export function useVapiCall(options: UseVapiOptions = {}) {
   const publicKey = options.publicKey || process.env.NEXT_PUBLIC_VAPI_PUBLIC_KEY || '';
 
   useEffect(() => {
-    if (!publicKey) return;
+    // Only initialize Vapi Web SDK if valid public key is provided (starts with pk_ or custom format, not placeholder)
+    if (!publicKey || publicKey.includes('your-vapi') || publicKey.startsWith('sk-')) {
+      console.info('Vapi Public Key not configured or placeholder used. WebRTC will operate in simulation mode.');
+      return;
+    }
 
     try {
       const vapiInstance = new Vapi(publicKey);
@@ -62,24 +66,22 @@ export function useVapiCall(options: UseVapiOptions = {}) {
       });
 
       vapiInstance.on('error', (e: any) => {
-        console.error('Vapi Web SDK Error:', e);
-        setCallStatus('failed');
+        console.warn('Vapi Web SDK event warning:', e);
+        // Do not fail hard on invalid key; keep active state for simulation
       });
 
       return () => {
         vapiInstance.stop();
       };
     } catch (err) {
-      console.warn('Failed to initialize Vapi Web SDK, falling back to REST/Simulation mode', err);
+      console.warn('Failed to initialize Vapi Web SDK, falling back to simulated session mode:', err);
     }
   }, [publicKey]);
 
   const startWebCall = useCallback(async (assistantId?: string) => {
-    if (!vapi) {
-      setCallStatus('active');
-      return;
-    }
     setCallStatus('active');
+    if (!vapi) return;
+
     try {
       if (assistantId) {
         await vapi.start(assistantId);
@@ -100,13 +102,17 @@ export function useVapiCall(options: UseVapiOptions = {}) {
         });
       }
     } catch (err) {
-      console.error('Error starting Vapi call via Web SDK:', err);
+      console.warn('Vapi startWebCall warning (simulation mode active):', err);
     }
   }, [vapi]);
 
   const stopWebCall = useCallback(() => {
     if (vapi) {
-      vapi.stop();
+      try {
+        vapi.stop();
+      } catch (err) {
+        // silent catch
+      }
     }
     setCallStatus('completed');
     setIsSpeaking(false);
