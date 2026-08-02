@@ -18,10 +18,38 @@ export function useVapiCall(options: UseVapiOptions = {}) {
 
   const publicKey = options.publicKey || process.env.NEXT_PUBLIC_VAPI_PUBLIC_KEY || '';
 
+  // Browser Text-To-Speech helper for audible voice playback
+  const speakText = useCallback((text: string) => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+
+    try {
+      window.speechSynthesis.cancel(); // stop previous speech
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.rate = 1.0;
+      utterance.pitch = 1.1;
+
+      const voices = window.speechSynthesis.getVoices();
+      const femaleVoice = voices.find(
+        (v) => v.lang.startsWith('en') && (v.name.includes('Female') || v.name.includes('Google') || v.name.includes('Samantha') || v.name.includes('Natural') || v.name.includes('Zira'))
+      ) || voices.find((v) => v.lang.startsWith('en'));
+
+      if (femaleVoice) {
+        utterance.voice = femaleVoice;
+      }
+
+      utterance.onstart = () => setIsSpeaking(true);
+      utterance.onend = () => setIsSpeaking(false);
+      utterance.onerror = () => setIsSpeaking(false);
+
+      window.speechSynthesis.speak(utterance);
+    } catch (err) {
+      console.warn('Browser SpeechSynthesis notice:', err);
+    }
+  }, []);
+
   useEffect(() => {
-    // Only initialize Vapi Web SDK if valid public key is provided (starts with pk_ or custom format, not placeholder)
     if (!publicKey || publicKey.includes('your-vapi') || publicKey.startsWith('sk-')) {
-      console.info('Vapi Public Key not configured or placeholder used. WebRTC will operate in simulation mode.');
+      console.info('Vapi Public Key not configured or placeholder used. WebRTC will operate in simulation & browser TTS mode.');
       return;
     }
 
@@ -67,14 +95,13 @@ export function useVapiCall(options: UseVapiOptions = {}) {
 
       vapiInstance.on('error', (e: any) => {
         console.warn('Vapi Web SDK event warning:', e);
-        // Do not fail hard on invalid key; keep active state for simulation
       });
 
       return () => {
         vapiInstance.stop();
       };
     } catch (err) {
-      console.warn('Failed to initialize Vapi Web SDK, falling back to simulated session mode:', err);
+      console.warn('Failed to initialize Vapi Web SDK, falling back to browser TTS mode:', err);
     }
   }, [publicKey]);
 
@@ -102,11 +129,14 @@ export function useVapiCall(options: UseVapiOptions = {}) {
         });
       }
     } catch (err) {
-      console.warn('Vapi startWebCall warning (simulation mode active):', err);
+      console.warn('Vapi startWebCall warning (browser TTS simulation active):', err);
     }
   }, [vapi]);
 
   const stopWebCall = useCallback(() => {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
     if (vapi) {
       try {
         vapi.stop();
@@ -125,6 +155,7 @@ export function useVapiCall(options: UseVapiOptions = {}) {
     activeStage,
     transcripts,
     volumeLevel,
+    speakText,
     setActiveStage,
     setTranscripts,
     startWebCall,

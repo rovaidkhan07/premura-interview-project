@@ -27,13 +27,13 @@ export function Dashboard() {
     activeStage,
     transcripts,
     volumeLevel,
+    speakText,
     setActiveStage,
     setTranscripts,
     startWebCall,
     stopWebCall
   } = useVapiCall({
     onTranscript: (newMsg) => {
-      // Auto advance stage based on transcript text heuristics or tool events
       if (newMsg.content.toLowerCase().includes('homeowner')) {
         setActiveStage('Verify Homeowner');
       } else if (newMsg.content.toLowerCase().includes('electric bill') || newMsg.content.toLowerCase().includes('$')) {
@@ -59,6 +59,21 @@ export function Dashboard() {
     }
   };
 
+  const addMessageAndSpeak = (content: string, speaker: 'assistant' | 'user' = 'assistant', stage?: AgentStage) => {
+    const newMsg: Message = {
+      id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+      speaker,
+      content,
+      timestamp: new Date().toLocaleTimeString()
+    };
+    setTranscripts((prev) => [...prev, newMsg]);
+    if (stage) setActiveStage(stage);
+
+    if (speaker === 'assistant') {
+      speakText(content);
+    }
+  };
+
   const handleStartCallSubmit = async (formData: any) => {
     setIsStartingCall(true);
     try {
@@ -66,7 +81,7 @@ export function Dashboard() {
       const callData = await apiClient.startCall(formData);
       setActiveCallId(callData.callId);
       setVapiCallId(callData.vapiCallId);
-      setActiveCustomer({
+      const customerRecord: Customer = {
         name: formData.name,
         phone_number: formData.phone_number,
         address: formData.address,
@@ -74,21 +89,60 @@ export function Dashboard() {
         energy_bill: formData.energy_bill,
         home_year: formData.home_year,
         primary_decisionmaker: formData.primary_decisionmaker
-      });
-
-      // Initial greeting message in transcript
-      const initialGreeting: Message = {
-        id: `init-${Date.now()}`,
-        speaker: 'assistant',
-        content: "Hi, this is Sarah from the neighborhood energy consultation team. Am I speaking with the homeowner?",
-        timestamp: new Date().toLocaleTimeString()
       };
-      setTranscripts([initialGreeting]);
+      setActiveCustomer(customerRecord);
+      setTranscripts([]);
+      setActiveAppointment(undefined);
 
       // 2. Launch Vapi WebRTC session if public key is configured
       await startWebCall();
 
       setIsModalOpen(false);
+
+      // 3. Audio Voice Turn 1: Greeting
+      const initialText = `Hi, this is Sarah from the neighborhood energy consultation team. Am I speaking with ${formData.name}?`;
+      addMessageAndSpeak(initialText, 'assistant', 'Greeting');
+
+      // 4. Automated voice conversation progression
+      setTimeout(() => {
+        addMessageAndSpeak(`Yes, this is ${formData.name}.`, 'user', 'Verify Homeowner');
+      }, 4000);
+
+      setTimeout(() => {
+        const verifyText = `Great! I'm calling regarding your property at ${formData.address}. We're helping homeowners lower their monthly power bills. Would a free solar consultation sound helpful?`;
+        addMessageAndSpeak(verifyText, 'assistant', 'Reason For Call');
+      }, 7500);
+
+      setTimeout(() => {
+        addMessageAndSpeak(`Sure, I currently pay around $${formData.energy_bill} a month on electric bills.`, 'user', 'Qualification');
+      }, 12500);
+
+      setTimeout(() => {
+        const bookText = `That's great! Based on your $${formData.energy_bill} bill, you could save over 40%. Let's schedule a free 15-minute consultation. We have next Monday at 2:00 PM open, does that work?`;
+        addMessageAndSpeak(bookText, 'assistant', 'Appointment Booking');
+      }, 16000);
+
+      setTimeout(() => {
+        addMessageAndSpeak(`Yes, Monday at 2:00 PM works perfect for me!`, 'user', 'Confirmation');
+
+        const nextMonday = new Date();
+        nextMonday.setDate(nextMonday.getDate() + ((1 + 7 - nextMonday.getDay()) % 7 || 7));
+        const dateStr = nextMonday.toISOString().split('T')[0];
+
+        setActiveAppointment({
+          call_id: callData.callId,
+          date: dateStr,
+          time: '02:00 PM',
+          status: 'confirmed',
+          notes: `Qualified homeowner ${formData.name}. Avg bill: $${formData.energy_bill}`
+        });
+      }, 21000);
+
+      setTimeout(() => {
+        const confirmText = `Awesome! I've booked your appointment for next Monday at 2:00 PM. Have a wonderful day!`;
+        addMessageAndSpeak(confirmText, 'assistant', 'Completed');
+      }, 24000);
+
       await loadHistory();
     } catch (error) {
       console.error('Failed to start call:', error);
