@@ -1,9 +1,10 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Vapi from '@vapi-ai/web';
 import { Message, CallStatus, AgentStage } from '../types/types';
 
 interface UseVapiOptions {
   publicKey?: string;
+  assistantId?: string;
   onTranscript?: (message: Message) => void;
   onCallStateChange?: (status: CallStatus) => void;
 }
@@ -16,45 +17,18 @@ export function useVapiCall(options: UseVapiOptions = {}) {
   const [transcripts, setTranscripts] = useState<Message[]>([]);
   const [volumeLevel, setVolumeLevel] = useState(0);
 
-  const publicKey = options.publicKey || process.env.NEXT_PUBLIC_VAPI_PUBLIC_KEY || '';
-
-  // Browser Text-To-Speech helper for audible voice playback
-  const speakText = useCallback((text: string) => {
-    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
-
-    try {
-      window.speechSynthesis.cancel(); // stop previous speech
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.rate = 1.0;
-      utterance.pitch = 1.1;
-
-      const voices = window.speechSynthesis.getVoices();
-      const femaleVoice = voices.find(
-        (v) => v.lang.startsWith('en') && (v.name.includes('Female') || v.name.includes('Google') || v.name.includes('Samantha') || v.name.includes('Natural') || v.name.includes('Zira'))
-      ) || voices.find((v) => v.lang.startsWith('en'));
-
-      if (femaleVoice) {
-        utterance.voice = femaleVoice;
-      }
-
-      utterance.onstart = () => setIsSpeaking(true);
-      utterance.onend = () => setIsSpeaking(false);
-      utterance.onerror = () => setIsSpeaking(false);
-
-      window.speechSynthesis.speak(utterance);
-    } catch (err) {
-      console.warn('Browser SpeechSynthesis notice:', err);
-    }
-  }, []);
+  const [vapiPublicKey, setVapiPublicKey] = useState<string>(
+    options.publicKey || process.env.NEXT_PUBLIC_VAPI_PUBLIC_KEY || ''
+  );
 
   useEffect(() => {
-    if (!publicKey || publicKey.includes('your-vapi') || publicKey.startsWith('sk-')) {
-      console.info('Vapi Public Key not configured or placeholder used. WebRTC will operate in simulation & browser TTS mode.');
+    if (!vapiPublicKey || vapiPublicKey.includes('your-vapi') || vapiPublicKey.startsWith('sk-')) {
+      setVapi(null);
       return;
     }
 
     try {
-      const vapiInstance = new Vapi(publicKey);
+      const vapiInstance = new Vapi(vapiPublicKey);
       setVapi(vapiInstance);
 
       vapiInstance.on('call-start', () => {
@@ -94,25 +68,30 @@ export function useVapiCall(options: UseVapiOptions = {}) {
       });
 
       vapiInstance.on('error', (e: any) => {
-        console.warn('Vapi Web SDK event warning:', e);
+        console.warn('Vapi Web SDK error:', e);
       });
 
       return () => {
         vapiInstance.stop();
       };
     } catch (err) {
-      console.warn('Failed to initialize Vapi Web SDK, falling back to browser TTS mode:', err);
+      console.error('Failed to initialize Vapi Web SDK:', err);
     }
-  }, [publicKey]);
+  }, [vapiPublicKey]);
 
-  const startWebCall = useCallback(async (assistantId?: string) => {
+  const startWebCall = useCallback(async (customAssistantId?: string) => {
     setCallStatus('active');
-    if (!vapi) return;
+    if (!vapi) {
+      console.warn('Vapi Web SDK not connected. Missing valid Vapi Public Key (pk_...).');
+      return;
+    }
 
     try {
-      if (assistantId) {
-        await vapi.start(assistantId);
+      const targetAssistantId = customAssistantId || options.assistantId;
+      if (targetAssistantId) {
+        await vapi.start(targetAssistantId);
       } else {
+        // Start transient Vapi assistant directly over WebRTC
         await vapi.start({
           transcriber: { provider: 'deepgram', model: 'nova-2' },
           model: {
@@ -121,22 +100,19 @@ export function useVapiCall(options: UseVapiOptions = {}) {
             messages: [
               {
                 role: 'system',
-                content: 'You are Sarah from Neighborhood Solar. Greet the customer and verify if they own the home.'
+                content: `You are Sarah, an AI voice appointment setter for Neighborhood Solar. Greet the homeowner naturally in 1-2 short sentences and qualify their home for solar.`
               }
             ]
           },
           voice: { provider: '11labs', voiceId: '21m00Tcm4TlvDq8ikWAM' }
         });
       }
-    } catch (err) {
-      console.warn('Vapi startWebCall warning (browser TTS simulation active):', err);
+    } catch (err: any) {
+      console.error('Error starting live Vapi voice call:', err);
     }
-  }, [vapi]);
+  }, [vapi, options.assistantId]);
 
   const stopWebCall = useCallback(() => {
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-    }
     if (vapi) {
       try {
         vapi.stop();
@@ -150,12 +126,13 @@ export function useVapiCall(options: UseVapiOptions = {}) {
 
   return {
     vapi,
+    vapiPublicKey,
+    setVapiPublicKey,
     callStatus,
     isSpeaking,
     activeStage,
     transcripts,
     volumeLevel,
-    speakText,
     setActiveStage,
     setTranscripts,
     startWebCall,

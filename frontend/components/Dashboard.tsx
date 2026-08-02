@@ -11,6 +11,7 @@ import { RecentCallsList } from './RecentCallsList';
 import { apiClient } from '../services/apiClient';
 import { useVapiCall } from '../hooks/useVapiCall';
 import { CallStatus, AgentStage, Message, Appointment, Customer, CallHistoryItem } from '../types/types';
+import { Key, Sparkles, AlertCircle, CheckCircle2 } from 'lucide-react';
 
 export function Dashboard() {
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -20,26 +21,32 @@ export function Dashboard() {
   const [activeAppointment, setActiveAppointment] = useState<Appointment | undefined>(undefined);
   const [history, setHistory] = useState<CallHistoryItem[]>([]);
   const [isStartingCall, setIsStartingCall] = useState(false);
+  const [customAssistantId, setCustomAssistantId] = useState('');
 
   const {
+    vapi,
+    vapiPublicKey,
+    setVapiPublicKey,
     callStatus,
     isSpeaking,
     activeStage,
     transcripts,
     volumeLevel,
-    speakText,
     setActiveStage,
     setTranscripts,
     startWebCall,
     stopWebCall
   } = useVapiCall({
     onTranscript: (newMsg) => {
-      if (newMsg.content.toLowerCase().includes('homeowner')) {
+      const lower = newMsg.content.toLowerCase();
+      if (lower.includes('homeowner') || lower.includes('own')) {
         setActiveStage('Verify Homeowner');
-      } else if (newMsg.content.toLowerCase().includes('electric bill') || newMsg.content.toLowerCase().includes('$')) {
+      } else if (lower.includes('electric bill') || lower.includes('power') || lower.includes('$')) {
         setActiveStage('Qualification');
-      } else if (newMsg.content.toLowerCase().includes('schedule') || newMsg.content.toLowerCase().includes('consultation')) {
+      } else if (lower.includes('schedule') || lower.includes('consultation') || lower.includes('appointment')) {
         setActiveStage('Appointment Booking');
+      } else if (lower.includes('confirmed') || lower.includes('see you')) {
+        setActiveStage('Confirmation');
       }
     }
   });
@@ -59,28 +66,14 @@ export function Dashboard() {
     }
   };
 
-  const addMessageAndSpeak = (content: string, speaker: 'assistant' | 'user' = 'assistant', stage?: AgentStage) => {
-    const newMsg: Message = {
-      id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
-      speaker,
-      content,
-      timestamp: new Date().toLocaleTimeString()
-    };
-    setTranscripts((prev) => [...prev, newMsg]);
-    if (stage) setActiveStage(stage);
-
-    if (speaker === 'assistant') {
-      speakText(content);
-    }
-  };
-
   const handleStartCallSubmit = async (formData: any) => {
     setIsStartingCall(true);
     try {
-      // 1. Backend REST call to register customer & create call record
+      // 1. Backend REST call to register customer & save initial call record to Supabase
       const callData = await apiClient.startCall(formData);
       setActiveCallId(callData.callId);
       setVapiCallId(callData.vapiCallId);
+
       const customerRecord: Customer = {
         name: formData.name,
         phone_number: formData.phone_number,
@@ -94,54 +87,10 @@ export function Dashboard() {
       setTranscripts([]);
       setActiveAppointment(undefined);
 
-      // 2. Launch Vapi WebRTC session if public key is configured
-      await startWebCall();
-
       setIsModalOpen(false);
 
-      // 3. Audio Voice Turn 1: Greeting
-      const initialText = `Hi, this is Sarah from the neighborhood energy consultation team. Am I speaking with ${formData.name}?`;
-      addMessageAndSpeak(initialText, 'assistant', 'Greeting');
-
-      // 4. Automated voice conversation progression
-      setTimeout(() => {
-        addMessageAndSpeak(`Yes, this is ${formData.name}.`, 'user', 'Verify Homeowner');
-      }, 4000);
-
-      setTimeout(() => {
-        const verifyText = `Great! I'm calling regarding your property at ${formData.address}. We're helping homeowners lower their monthly power bills. Would a free solar consultation sound helpful?`;
-        addMessageAndSpeak(verifyText, 'assistant', 'Reason For Call');
-      }, 7500);
-
-      setTimeout(() => {
-        addMessageAndSpeak(`Sure, I currently pay around $${formData.energy_bill} a month on electric bills.`, 'user', 'Qualification');
-      }, 12500);
-
-      setTimeout(() => {
-        const bookText = `That's great! Based on your $${formData.energy_bill} bill, you could save over 40%. Let's schedule a free 15-minute consultation. We have next Monday at 2:00 PM open, does that work?`;
-        addMessageAndSpeak(bookText, 'assistant', 'Appointment Booking');
-      }, 16000);
-
-      setTimeout(() => {
-        addMessageAndSpeak(`Yes, Monday at 2:00 PM works perfect for me!`, 'user', 'Confirmation');
-
-        const nextMonday = new Date();
-        nextMonday.setDate(nextMonday.getDate() + ((1 + 7 - nextMonday.getDay()) % 7 || 7));
-        const dateStr = nextMonday.toISOString().split('T')[0];
-
-        setActiveAppointment({
-          call_id: callData.callId,
-          date: dateStr,
-          time: '02:00 PM',
-          status: 'confirmed',
-          notes: `Qualified homeowner ${formData.name}. Avg bill: $${formData.energy_bill}`
-        });
-      }, 21000);
-
-      setTimeout(() => {
-        const confirmText = `Awesome! I've booked your appointment for next Monday at 2:00 PM. Have a wonderful day!`;
-        addMessageAndSpeak(confirmText, 'assistant', 'Completed');
-      }, 24000);
+      // 2. Launch Live Vapi WebRTC AI Voice Session
+      await startWebCall(customAssistantId || undefined);
 
       await loadHistory();
     } catch (error) {
@@ -167,11 +116,56 @@ export function Dashboard() {
     await loadHistory();
   };
 
+  const isVapiConnected = Boolean(vapiPublicKey && !vapiPublicKey.includes('your-vapi') && vapiPublicKey.startsWith('pk_'));
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
       <Navbar activeCallsCount={callStatus === 'active' ? 1 : 0} />
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+        {/* Vapi Live Credentials Bar */}
+        <div className="glass-panel p-4 rounded-xl border border-slate-800 bg-slate-900/60 flex flex-col md:flex-row items-center justify-between gap-4">
+          <div className="flex items-center space-x-3">
+            <div className={`p-2 rounded-lg ${isVapiConnected ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'}`}>
+              {isVapiConnected ? <CheckCircle2 className="w-5 h-5" /> : <AlertCircle className="w-5 h-5" />}
+            </div>
+            <div>
+              <h3 className="text-xs font-bold text-slate-200 flex items-center gap-2">
+                Live Vapi AI Voice Connection Status
+                <span className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold ${isVapiConnected ? 'bg-emerald-500/20 text-emerald-300' : 'bg-amber-500/20 text-amber-300'}`}>
+                  {isVapiConnected ? 'Vapi WebRTC Ready' : 'Key Required'}
+                </span>
+              </h3>
+              <p className="text-[11px] text-slate-400">
+                {isVapiConnected
+                  ? 'Your browser is connected to Vapi AI Voice engine. Calls will stream live microphone audio.'
+                  : 'Enter your Vapi Public Key (pk_...) below to enable live bidirectional microphone voice calls.'}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center space-x-2 w-full md:w-auto">
+            <div className="relative flex-1 md:w-64">
+              <Key className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-2.5" />
+              <input
+                type="password"
+                value={vapiPublicKey}
+                onChange={(e) => setVapiPublicKey(e.target.value)}
+                placeholder="Vapi Public Key (pk_...)"
+                className="w-full bg-slate-950 border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-cyan-500"
+              />
+            </div>
+
+            <input
+              type="text"
+              value={customAssistantId}
+              onChange={(e) => setCustomAssistantId(e.target.value)}
+              placeholder="Assistant ID (Optional)"
+              className="w-40 bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-cyan-500"
+            />
+          </div>
+        </div>
+
         {/* Call Control Banner */}
         <CallControlPanel
           status={callStatus}
