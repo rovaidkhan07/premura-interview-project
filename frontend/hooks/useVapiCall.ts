@@ -9,6 +9,9 @@ interface UseVapiOptions {
   onCallStateChange?: (status: CallStatus) => void;
 }
 
+const DEFAULT_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPI_PUBLIC_KEY || '8e681f18-f286-40ca-8e81-879c64d29867';
+const SARAH_VOICE_ID = process.env.VOICE_SARAH || 'EXAVITQu4vr4xnSDxMaL';
+
 export function useVapiCall(options: UseVapiOptions = {}) {
   const [vapi, setVapi] = useState<Vapi | null>(null);
   const [callStatus, setCallStatus] = useState<CallStatus>('pending');
@@ -18,11 +21,11 @@ export function useVapiCall(options: UseVapiOptions = {}) {
   const [volumeLevel, setVolumeLevel] = useState(0);
 
   const [vapiPublicKey, setVapiPublicKey] = useState<string>(
-    options.publicKey || process.env.NEXT_PUBLIC_VAPI_PUBLIC_KEY || ''
+    options.publicKey || DEFAULT_PUBLIC_KEY
   );
 
   useEffect(() => {
-    if (!vapiPublicKey || vapiPublicKey.includes('your-vapi') || vapiPublicKey.startsWith('sk-')) {
+    if (!vapiPublicKey) {
       setVapi(null);
       return;
     }
@@ -82,7 +85,7 @@ export function useVapiCall(options: UseVapiOptions = {}) {
   const startWebCall = useCallback(async (customAssistantId?: string) => {
     setCallStatus('active');
     if (!vapi) {
-      console.warn('Vapi Web SDK not connected. Missing valid Vapi Public Key (pk_...).');
+      console.warn('Vapi Web SDK instance not ready.');
       return;
     }
 
@@ -91,7 +94,7 @@ export function useVapiCall(options: UseVapiOptions = {}) {
       if (targetAssistantId) {
         await vapi.start(targetAssistantId);
       } else {
-        // Start transient Vapi assistant directly over WebRTC
+        // Start transient Vapi assistant directly over WebRTC with Sarah voice
         await vapi.start({
           transcriber: { provider: 'deepgram', model: 'nova-2' },
           model: {
@@ -104,7 +107,7 @@ export function useVapiCall(options: UseVapiOptions = {}) {
               }
             ]
           },
-          voice: { provider: '11labs', voiceId: '21m00Tcm4TlvDq8ikWAM' }
+          voice: { provider: '11labs', voiceId: SARAH_VOICE_ID }
         });
       }
     } catch (err: any) {

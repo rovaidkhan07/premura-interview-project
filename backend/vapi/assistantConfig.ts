@@ -1,6 +1,8 @@
 import { solarAgentPrompt } from '../prompts/solar-agent';
 import { vapiTools } from '../tools/vapiTools';
 
+export const SARAH_VOICE_ID = process.env.VOICE_SARAH || 'EXAVITQu4vr4xnSDxMaL';
+
 export const getSolarAssistantConfig = (backendWebhookUrl: string) => {
   return {
     name: 'Solar Appointment Setter - Sarah',
@@ -17,7 +19,7 @@ export const getSolarAssistantConfig = (backendWebhookUrl: string) => {
     },
     voice: {
       provider: '11labs',
-      voiceId: '21m00Tcm4TlvDq8ikWAM' // Sarah / Rachel natural voice
+      voiceId: SARAH_VOICE_ID
     },
     firstMessage: "Hi, this is Sarah from the neighborhood energy consultation team. Am I speaking with the homeowner?",
     serverUrl: backendWebhookUrl,
