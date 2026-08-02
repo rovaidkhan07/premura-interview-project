@@ -1,0 +1,18 @@
+{
+  "pricing_is_too_high": {
+    "question": "I'm concerned about pricing",
+    "response": "We've helped homeowners save an average of $1,200/year on their energy bills. Let me show you how our financing options can work with your budget."
+  },
+  "timing_is_not_right": {
+    "question": "Now is not a good time",
+    "response": "That's completely understandable. Would it help if we scheduled a follow-up consultation at a time that works better for you?"
+  },
+  "want_to_think": {
+    "question": "I want to think about it",
+    "response": "That makes sense - it's a big decision. Let me ask you one quick question that might help clarify - have you seen your current energy bills this summer?"
+  },
+  "not_interested": {
+    "question": "I'm not interested",
+    "response": "I appreciate your time. Most of our customers felt the same way until they saw how much they were paying monthly on their energy bill. May I ask what's driving your energy costs right now?"
+  }
+}
